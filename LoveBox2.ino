@@ -9,16 +9,39 @@
 #include <WiFi.h>
 
 #define NO_ADAFRUIT_SSD1306_COLOR_COMPATIBILITY
-
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <Fonts/FreeMono9pt7b.h>
+#include <Fonts/FreeMono12pt7b.h>
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+#include <Servo.h>
+#define SERVO_DATA_PIN 2
+int pos = 90;
+int increment = -2;
+Servo myservo;
+
+#define ANALOG_LIGHT_PIN 0
+#define LIGHT_LEVEL 100
+int light;
+
+#define MAX_MIN 200
+int Cnt_sec;
+int Cnt_min;
+int Trigger_min;
+enum States
+{
+    start,
+    wait,
+    spin,
+    wait_close
+};
+States Status = start;
+
 
 void scan()
 {
@@ -41,6 +64,32 @@ void scan()
     Serial.println(" I2C Devices found.");
 }
 
+void spinServo() {
+    myservo.write(pos);
+
+    if (pos <= 50 || pos >= 125) // Drehbereich zwischen 75°-105°
+    { 
+        increment *= -1;
+    }
+    pos += increment;
+}
+
+void setText(char* Zeile1, char* Zeile2)
+{
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+
+    display.drawRoundRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 5, 1);
+
+    display.setFont(&FreeMono12pt7b);
+    display.setCursor(5, 20);
+    display.println(Zeile1);
+    display.setCursor(5, 50);
+    display.println(Zeile2);
+    display.display();
+}
+
 void setup()
 {
     Serial.begin(115200);
@@ -55,6 +104,8 @@ void setup()
     display.display();
     delay(500);
 
+    scan();
+
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
     display.setTextSize(2);
@@ -62,25 +113,68 @@ void setup()
     display.println("Lovebox von Sarah");
     display.display();
     delay(1000);
+
+    display.clearDisplay();
+    display.display();
+
+    myservo.attach(SERVO_DATA_PIN);
+    myservo.write(pos);
+
+    randomSeed(RANDOM_REG32);
+
+    Trigger_min = random(30, MAX_MIN);
+    Status = wait;
 }
 
 
 void loop()
 {
-    int light =  analogRead(0);
+    light =  analogRead(ANALOG_LIGHT_PIN);
 
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setCursor(0, 0);
-
-    display.drawRoundRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 4, 1);
-
-    display.setFont(&FreeMono9pt7b);
-    display.setCursor(10, 20);
-    display.println(light);
-    display.setCursor(10, 40);
-    display.println("Lieb hab");
-    display.display();
+    //Serial.printf("%i\n", Status);
+    switch (Status)
+    {
+    case wait:
+        Serial.print("wait ");
+        setText("Deckel", "zu!");
+        if (Trigger_min == Cnt_min)
+        {
+            Status = spin;
+        }
+        break;
+    case spin:
+        Serial.print("spin ");
+        spinServo();
+        if (light > LIGHT_LEVEL)
+        {
+            Status = wait_close;
+            setText("Lieb hab", "<3");
+        }
+        break;
+    case wait_close:
+        Serial.print("wait_close ");
+        setText("Deckel", "zu!");
+        if (light < LIGHT_LEVEL)
+        {
+            display.clearDisplay();
+            display.display();
+            Cnt_min = 0;
+			Trigger_min = random(30, MAX_MIN);
+            Status = wait;
+        }
+        break;
+    default:
+        break;
+    }
+    
+    Serial.printf("%i:%i (%i) L:%i P:%i\n", Cnt_min, Cnt_sec, Trigger_min, light, pos);
 
     delay(1000);
+
+    Cnt_sec++;
+    if (60 == Cnt_sec)
+    {
+        Cnt_sec = 0;
+        Cnt_min++;
+    }
 }
